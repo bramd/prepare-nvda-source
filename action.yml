@@ -145,13 +145,9 @@ runs:
         NVDA_DIR: ${{ steps.resolve-path.outputs.dir }}
         NVDA_SHA: ${{ steps.get-sha.outputs.sha }}
       run: |
-        mkdir -p "$NVDA_DIR"
-        cd "$NVDA_DIR"
-        git init -q
-        git remote add origin https://github.com/nvaccess/nvda
-        git fetch -q --no-tags --depth=1 origin "$NVDA_SHA"
-        git checkout -q --force FETCH_HEAD
-        git submodule update --init --force --recursive --depth=1
+        git clone --depth 1 --revision "$NVDA_SHA" \
+          --recurse-submodules --shallow-submodules \
+          https://github.com/nvaccess/nvda "$NVDA_DIR"
 
     # Installed after NVDA is available (from the clone or the restored cache) so setup-uv can key
     # its cache on NVDA's lockfile. uv is only needed for `scons source`, which runs after this.

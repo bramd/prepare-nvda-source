@@ -17,11 +17,12 @@
   restored to the wrong place; the first run after upgrading is a cold build.
 - Move the SCons MSVC config cache from the workspace root to `RUNNER_TEMP`. It was the one
   other file the action left in the caller's checkout.
-- Clone NVDA with git directly instead of `actions/checkout`, which rejects any path resolving
-  outside `GITHUB_WORKSPACE`. The clone is equivalent to what checkout did here: shallow, no
-  tags, shallow recursive submodules. It also pins the commit SHA already resolved by the
-  `Get NVDA commit SHA` step, so a moving ref such as `master` can no longer advance between
-  the two and store a tree under a cache key naming a different commit.
+- Clone NVDA with `git clone` instead of `actions/checkout`, which rejects any path resolving
+  outside `GITHUB_WORKSPACE`. The clone is shallow with shallow submodules, matching what
+  checkout did here. It clones the commit SHA already resolved by the `Get NVDA commit SHA`
+  step, so a moving ref such as `master` can no longer advance between the two and store a
+  tree under a cache key naming a different commit. This uses `git clone --revision`, so the
+  runner needs Git 2.49 or newer; every current GitHub-hosted Windows image qualifies.
 - Hash NVDA's `.vsconfig` with `sha256sum` rather than `hashFiles()` for the SCons MSVC cache
   key, since `hashFiles()` only globs inside the workspace and silently returns an empty string
   for anything outside it.
