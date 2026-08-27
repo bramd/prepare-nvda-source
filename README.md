@@ -3,8 +3,9 @@
 A composite GitHub Action that produces a **built, runnable NVDA source clone** for NVDA add-on
 CI. It checks out [`nvaccess/nvda`](https://github.com/nvaccess/nvda) at a given ref (with
 submodules), installs the matching Python, installs the required Visual Studio components, and runs
-`scons source`. The result is a `nvda/` directory with a compiled `source/` tree and a populated
-`nvda/.venv` — i.e. an NVDA checkout you can import from and run tests against.
+`scons source`. The result is an NVDA checkout with a compiled `source/` tree and a populated
+`.venv` — one you can import from and run tests against. It lands in `nvda/` by default, and the
+`path` input can put it anywhere, including outside the workspace.
 
 It exists so any NVDA add-on project can reuse a single, tested build step instead of copying the
 same workflow into every repository.
@@ -26,6 +27,7 @@ same workflow into every repository.
 | `python-version` | no | `` | Python version to install (e.g. `3.13.12`). Empty = auto-detect from NVDA's `.python-versions` (NVDA ≥ 2025.3). See [Automatic Python detection](#automatic-python-detection). |
 | `python-arch` | no | `` | Python architecture: `x86` or `x64`. Empty = auto-detect from NVDA's `.python-versions` (NVDA ≥ 2025.3). Must match the target NVDA build. |
 | `nvda-ref` | yes | — | Git ref of `nvaccess/nvda` to build (tag or branch, e.g. `release-2026.1`). |
+| `path` | no | `nvda` | Directory to clone NVDA into. Relative values resolve against the workspace, absolute values are used as-is. See [Where NVDA is cloned](#where-nvda-is-cloned). |
 | `github-token` | yes | — | Token used to resolve `nvda-ref` to a commit SHA for a precise cache key. Pass `${{ github.token }}`. |
 | `scons-args` | no | `-j2` | Extra arguments appended to `scons source` (e.g. `-j2`, `version=...`). |
 | `install-vs-components` | no | `true` | Install NVDA's `.vsconfig` VS components at runtime. Set `false` on images that already ship the required VS toolset (e.g. the `windows-2025-vs2026` image) to skip the install. |
@@ -63,19 +65,40 @@ in its own build job.
 
 | Output | Description |
 |--------|-------------|
-| `nvda-path` | Path to the built NVDA tree relative to the workspace (`nvda`). |
-| `cache-hit` | `true` when the NVDA build was restored from cache (checkout/build skipped). |
+| `nvda-path` | Absolute path to the built NVDA tree, with forward slashes. |
+| `cache-hit` | `true` when the NVDA build was restored from cache (clone/build skipped). |
+
+## Where NVDA is cloned
+
+By default NVDA is cloned to `nvda`, resolved against the workspace — the same place v1 put it.
+
+Set `path` to move it:
+
+- a relative value resolves against the workspace, e.g. `path: build/nvda`;
+- an absolute value is used as-is, e.g. `path: ${{ runner.temp }}/nvda`;
+- `path: ../nvda` puts NVDA next to the workspace instead of inside it. That is what you want if
+  you check your own repository out at the workspace root, because the workspace *is* your
+  repository then, and the default would drop the NVDA tree into your working copy — into
+  `git status`, and into whatever your linters, test discovery and packaging globs pick up.
+
+Refer to the tree through the `nvda-path` output rather than writing the path out a second time.
+It is absolute, so it works from any working directory.
+
+Keep the directory on the same drive as the workspace: `actions/cache` stores entries relative to
+the workspace, and a cross-drive path cannot round-trip through it.
 
 ## Caching
 
-The whole `nvda/` tree (including the compiled `source/` and `.venv`) is cached with
-`actions/cache`, keyed by `<os>-nvda-<python-version>-<python-arch>-<nvda-sha>`. On a cache hit,
-checkout, VS-component install, and `scons source` are all skipped and the ready-to-use tree is
-restored directly.
+The whole NVDA tree (including the compiled `source/` and `.venv`) is cached with `actions/cache`,
+keyed by `<os>-nvda-<python-version>-<python-arch>-<nvda-sha>`. The clone directory is part of a
+cache entry's identity, so changing `path` starts a fresh cache rather than restoring into the
+wrong place. On a cache hit, the clone, the VS-component install and `scons source` are all
+skipped and the ready-to-use tree is restored directly.
 
 On a cache **miss**, SCons's detected MSVC environment is additionally cached (via
 `SCONS_CACHE_MSVC_CONFIG`), keyed by the runner OS, image version, VS version, and a hash of NVDA's
-`.vsconfig`. This skips the repeated MSVC toolchain detection on subsequent cold builds.
+`.vsconfig`. That cache lives in `RUNNER_TEMP`, not in your workspace. It skips the repeated MSVC
+toolchain detection on subsequent cold builds.
 
 ## Visual Studio & choosing a runner
 
@@ -99,7 +122,7 @@ can use it directly:
 ```yaml
 runs-on: windows-2025-vs2026
 # ...
-      - uses: bramd/prepare-nvda-source@v1
+      - uses: bramd/prepare-nvda-source@v2
         with:
           # ...
           install-vs-components: false   # VS 2026 + NVDA's components already on the image
@@ -163,7 +186,8 @@ jobs:
           path: add-on
 
       - name: Prepare NVDA source
-        uses: bramd/prepare-nvda-source@v1
+        id: prepare
+        uses: bramd/prepare-nvda-source@v2
         with:
           nvda-ref: ${{ matrix.ref }}
           github-token: ${{ github.token }}
@@ -171,19 +195,22 @@ jobs:
 
       - name: Run unittests
         shell: cmd
+        working-directory: add-on
+        env:
+          NVDA: ${{ steps.prepare.outputs.nvda-path }}
         run: |
-          cd add-on
-          set PYTHONPATH=../nvda/source;../nvda/miscDeps/python
-          ..\nvda\.venv\scripts\python.exe -m unittest discover -s tests -t .
+          set PYTHONPATH=%NVDA%/source;%NVDA%/miscDeps/python
+          "%NVDA%/.venv/scripts/python.exe" -m unittest discover -s tests -t .
 ```
 
-The add-on is checked out to `add-on/` and NVDA lands as a sibling `nvda/`, so tests reference
-`../nvda/source`, `../nvda/miscDeps/python`, and `../nvda/.venv`.
+The add-on is checked out to `add-on/`, so NVDA lands alongside it in `nvda/` rather than inside
+it. Paths into NVDA come from the `nvda-path` output, so they stay correct if you move NVDA with
+`path`.
 
 ## Versioning
 
-Pin the major tag: `uses: bramd/prepare-nvda-source@v1`. The moving `v1` tag tracks the latest
-`v1.x` release. See [`CHANGELOG.md`](CHANGELOG.md).
+Pin the major tag: `uses: bramd/prepare-nvda-source@v2`. The moving `v2` tag tracks the latest
+`v2.x` release. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

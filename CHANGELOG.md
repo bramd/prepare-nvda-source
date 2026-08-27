@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.0.0
+
+- Add a `path` input controlling where NVDA is cloned. A relative value resolves against the
+  workspace, an absolute value is used as-is. The default is `nvda`, so the clone location is
+  unchanged from v1. Set `path: ../nvda` to keep the NVDA tree out of a repository that is
+  checked out at the workspace root.
+- **Breaking:** `nvda-path` is now an absolute path with forward slashes, instead of the
+  workspace-relative literal `nvda`. This matches how other actions expose a path
+  (`actions/setup-python`'s `python-path`, `actions/setup-java`'s `path`), and it stays correct
+  from any working directory. It still works as a step `working-directory`, and in bash, pwsh
+  and cmd (quote it in cmd); only an expression that prefixes it, such as
+  `../${{ steps.prepare.outputs.nvda-path }}`, needs updating.
+- **Breaking:** existing NVDA and SCons MSVC caches are not reused. `actions/cache` folds the
+  cached paths into a cache entry's identity, so v1 entries are unreachable rather than
+  restored to the wrong place; the first run after upgrading is a cold build.
+- Move the SCons MSVC config cache from the workspace root to `RUNNER_TEMP`. It was the one
+  other file the action left in the caller's checkout.
+- Clone NVDA with git directly instead of `actions/checkout`, which rejects any path resolving
+  outside `GITHUB_WORKSPACE`. The clone is equivalent to what checkout did here: shallow, no
+  tags, shallow recursive submodules. It also pins the commit SHA already resolved by the
+  `Get NVDA commit SHA` step, so a moving ref such as `master` can no longer advance between
+  the two and store a tree under a cache key naming a different commit.
+- Hash NVDA's `.vsconfig` with `sha256sum` rather than `hashFiles()` for the SCons MSVC cache
+  key, since `hashFiles()` only globs inside the workspace and silently returns an empty string
+  for anything outside it.
+
 ## v1.2.0
 
 - Make `python-version` and `python-arch` optional. When either is empty, the action auto-detects it

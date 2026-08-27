@@ -17,6 +17,13 @@ inputs:
   nvda-ref:
     description: Git ref to checkout (tag or branch)
     required: true
+  path:
+    description: >-
+      Directory to clone NVDA into. A relative value resolves against the workspace, an absolute
+      value is used as-is. The default keeps NVDA in the workspace. Set `../nvda`, or an absolute
+      path, to keep it out of a repository that is checked out at the workspace root.
+    required: false
+    default: "nvda"
   github-token:
     description: GitHub token for API access (used to resolve the NVDA ref to a commit SHA)
     required: true
@@ -41,8 +48,8 @@ inputs:
 
 outputs:
   nvda-path:
-    description: Path to the built NVDA source tree, relative to the workspace
-    value: nvda
+    description: Absolute path to the built NVDA source tree, with forward slashes
+    value: ${{ steps.resolve-path.outputs.dir }}
   cache-hit:
     description: Whether the NVDA cache was hit
     value: ${{ steps.cache-nvda.outputs.cache-hit }}
@@ -50,6 +57,25 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Resolve NVDA path
+      id: resolve-path
+      shell: pwsh
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        # A caller that sets `path:` to an empty value gets that empty string, not this
+        # action's `default:`.
+        $requested = $env:INPUT_PATH
+        if ([string]::IsNullOrWhiteSpace($requested)) { $requested = 'nvda' }
+        $workspace = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+        # Combine() returns an already-rooted second argument unchanged, which gives absolute-wins /
+        # relative-resolves-against-the-workspace; GetFullPath then normalises away any '..'.
+        $abs = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($workspace, $requested)).TrimEnd('\')
+        "dir=$($abs.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "win=$abs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        Write-Host "NVDA path: $abs"
+
     - name: Get NVDA commit SHA
       id: get-sha
       shell: bash
@@ -109,29 +135,37 @@ runs:
       id: cache-nvda
       uses: actions/cache@v5
       with:
-        path: nvda
+        path: ${{ steps.resolve-path.outputs.dir }}
         key: ${{ runner.os }}-nvda-${{ steps.resolve-python.outputs.version }}-${{ steps.resolve-python.outputs.arch }}-${{ steps.get-sha.outputs.sha }}
 
-    - name: Checkout NVDA
+    - name: Clone NVDA
       if: steps.cache-nvda.outputs.cache-hit != 'true'
-      uses: actions/checkout@v7
-      with:
-        repository: nvaccess/nvda
-        submodules: recursive
-        path: nvda
-        ref: ${{ inputs.nvda-ref }}
+      shell: bash
+      env:
+        NVDA_DIR: ${{ steps.resolve-path.outputs.dir }}
+        NVDA_SHA: ${{ steps.get-sha.outputs.sha }}
+      run: |
+        mkdir -p "$NVDA_DIR"
+        cd "$NVDA_DIR"
+        git init -q
+        git remote add origin https://github.com/nvaccess/nvda
+        git fetch -q --no-tags --depth=1 origin "$NVDA_SHA"
+        git checkout -q --force FETCH_HEAD
+        git submodule update --init --force --recursive --depth=1
 
-    # Installed after NVDA is available (from checkout or the restored cache) so setup-uv can key its
-    # cache on NVDA's lockfile. uv is only needed for `scons source`, which runs after this.
+    # Installed after NVDA is available (from the clone or the restored cache) so setup-uv can key
+    # its cache on NVDA's lockfile. uv is only needed for `scons source`, which runs after this.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-        cache-dependency-glob: nvda/uv.lock
+        cache-dependency-glob: ${{ steps.resolve-path.outputs.dir }}/uv.lock
 
     - name: Install Visual Studio components
       if: steps.cache-nvda.outputs.cache-hit != 'true' && inputs.install-vs-components == 'true'
       shell: pwsh
+      env:
+        NVDA_DIR_WIN: ${{ steps.resolve-path.outputs.win }}
       run: |
         $installerDir = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer"
         # Locate the VS install with vswhere instead of hardcoding an edition/path, so this works
@@ -148,7 +182,7 @@ runs:
           throw "No Visual Studio installation found (vswhere returned nothing for version '$vsVersion')."
         }
         Write-Host "Using Visual Studio at: $InstallPath"
-        $ConfigPath = Join-Path ${env:GITHUB_WORKSPACE} "nvda\.vsconfig"
+        $ConfigPath = Join-Path ${env:NVDA_DIR_WIN} ".vsconfig"
         $vsInstaller = Join-Path $installerDir "vs_installer.exe"
         $Arguments = @('modify', '--installPath', $InstallPath, '--config', $ConfigPath, '--quiet', '--norestart', '--nocache', '--includeRecommended')
         # Run twice: the first pass may only self-update the installer without applying the config.
@@ -162,21 +196,27 @@ runs:
     - name: Compute SCons MSVC cache key
       if: steps.cache-nvda.outputs.cache-hit != 'true'
       shell: bash
-      run: echo "SCONS_MSVC_CACHE_KEY=${RUNNER_OS}-scons-msvc-${ImageVersion}-${{ inputs.vs-version }}-${{ hashFiles('nvda/.vsconfig') }}" >> $GITHUB_ENV
+      env:
+        NVDA_DIR: ${{ steps.resolve-path.outputs.dir }}
+      run: |
+        VSCONFIG_HASH=none
+        if [ -f "$NVDA_DIR/.vsconfig" ]; then
+          VSCONFIG_HASH=$(sha256sum "$NVDA_DIR/.vsconfig" | cut -d' ' -f1)
+        fi
+        echo "SCONS_MSVC_CACHE_KEY=${RUNNER_OS}-scons-msvc-${ImageVersion}-${{ inputs.vs-version }}-${VSCONFIG_HASH}" >> $GITHUB_ENV
 
     - name: Cache SCons MSVC config
       if: steps.cache-nvda.outputs.cache-hit != 'true'
       uses: actions/cache@v5
       with:
-        path: .scons_msvc_cache.json
+        path: ${{ runner.temp }}/scons_msvc_cache.json
         key: ${{ env.SCONS_MSVC_CACHE_KEY }}
 
     - name: Prepare NVDA's source tree
       if: steps.cache-nvda.outputs.cache-hit != 'true'
       shell: cmd
+      working-directory: ${{ steps.resolve-path.outputs.dir }}
       env:
-        SCONS_CACHE_MSVC_CONFIG: ${{ github.workspace }}/.scons_msvc_cache.json
+        SCONS_CACHE_MSVC_CONFIG: ${{ runner.temp }}/scons_msvc_cache.json
         VSCMD_SKIP_SENDTELEMETRY: "1"
-      run: |
-        cd nvda
-        scons source ${{ inputs.scons-args }}
+      run: scons source ${{ inputs.scons-args }}

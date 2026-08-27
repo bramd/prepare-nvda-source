@@ -25,13 +25,17 @@ jobs:
             ref: release-2025.3.3
             runner: windows-2022
             install-vs-components: "true"
+            nvda-path: ""
           # Explicit python/arch, to prove the passthrough path still works unchanged.
-          - name: "2026.1"
+          # This entry also covers a path outside the workspace, which is the mode that cannot use
+          # actions/checkout and that the workspace assertion below depends on.
+          - name: "2026.1 (path: ../nvda)"
             python: "3.13.12"
             arch: x64
             ref: release-2026.1
             runner: windows-2022
             install-vs-components: "true"
+            nvda-path: ../nvda
           # Frontier NVDA builds with VS 2026, which ships pre-installed on the standard GA
           # windows-2025-vs2026 image, so no runtime component install is needed. This mirrors
           # nvaccess/nvda's own build and proves the pre-baked-image path cross-org.
@@ -43,6 +47,7 @@ jobs:
             ref: master
             runner: windows-2025-vs2026
             install-vs-components: "false"
+            nvda-path: ""
 
     steps:
       - name: Checkout action
@@ -57,6 +62,7 @@ jobs:
           nvda-ref: ${{ matrix.ref }}
           github-token: ${{ github.token }}
           install-vs-components: ${{ matrix.install-vs-components }}
+          path: ${{ matrix.nvda-path }}
 
       # Cheap "did the action build a tree" signal, kept distinct from unit-test failures below.
       # Consumes nvda-path so the output stays exercised.
@@ -68,6 +74,31 @@ jobs:
             throw "Expected NVDA venv python at $py (scons source did not produce a venv)"
           }
           Write-Host "cache-hit=${{ steps.prepare.outputs.cache-hit }} nvda-path=${{ steps.prepare.outputs.nvda-path }}"
+
+      # The default is unchanged from v1: NVDA is cloned to `nvda` inside the workspace.
+      - name: Assert the default resolves inside the workspace
+        if: matrix.nvda-path == ''
+        shell: pwsh
+        run: |
+          $expected = "$($env:GITHUB_WORKSPACE.Replace('\', '/'))/nvda"
+          $actual = "${{ steps.prepare.outputs.nvda-path }}"
+          if ($actual -ne $expected) {
+            throw "Expected NVDA at $expected, got $actual"
+          }
+
+      # A path outside the workspace leaves the caller's checkout - here, this repository -
+      # exactly as actions/checkout left it.
+      - name: Assert an out-of-workspace path leaves the workspace untouched
+        if: matrix.nvda-path != ''
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:GITHUB_WORKSPACE/nvda") {
+            throw "NVDA was cloned inside the workspace"
+          }
+          $dirty = git -C "$env:GITHUB_WORKSPACE" status --porcelain
+          if ($dirty) {
+            throw "The action left files in the workspace:`n$($dirty -join "`n")"
+          }
 
       # Run NVDA's own unit test suite (not system tests, which are slow) via NVDA's entrypoint, so
       # this stays correct across NVDA versions. It exits non-zero if any unit test fails, proving
