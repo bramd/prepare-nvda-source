@@ -15,8 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Current releases build with VS 2022 on the stock windows-2022 image, adding NVDA's
-          # .vsconfig components at runtime (install-vs-components: true).
+          # Current releases build with VS 2022 on the stock windows-2022 image, whose components
+          # already cover NVDA's .vsconfig.
           # Empty python/arch -> the action auto-detects them from NVDA's .python-versions.
           # 2025.3's file has two lines; this exercises the first-line-primary heuristic (3.11.9/x86).
           - name: "2025.3 (auto)"
@@ -24,11 +24,13 @@ jobs:
             arch: ""
             ref: release-2025.3.3
             runner: windows-2022
-            install-vs-components: "true"
+            install-vs-components: "false"
             nvda-path: ""
-          # Explicit python/arch, to prove the passthrough path still works unchanged.
-          # This entry also covers a path outside the workspace, which is the mode that cannot use
-          # actions/checkout and that the workspace assertion below depends on.
+          # Explicit python/arch, to prove the passthrough path still works unchanged. This entry
+          # also covers a path outside the workspace, which is the mode that cannot use
+          # actions/checkout and that the workspace assertion below depends on, and it is the one
+          # entry that opts into the VS component install, so that path keeps being exercised
+          # against an out-of-workspace .vsconfig.
           - name: "2026.1 (path: ../nvda)"
             python: "3.13.12"
             arch: x64

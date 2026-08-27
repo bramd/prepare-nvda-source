@@ -15,6 +15,11 @@
 - **Breaking:** existing NVDA and SCons MSVC caches are not reused. `actions/cache` folds the
   cached paths into a cache entry's identity, so v1 entries are unreachable rather than
   restored to the wrong place; the first run after upgrading is a cold build.
+- **Breaking:** `install-vs-components` now defaults to `false`. The GitHub-hosted Windows
+  images already carry the components NVDA's `.vsconfig` declares: `windows-2022` has all
+  nine, and `windows-2025` has eight, the ninth being a Windows 11 SDK that `nvaccess/nvda`
+  builds without. Running `vs_installer` was a no-op that still cost several minutes per cold
+  build. Set the input to `true` on a runner that genuinely lacks a component.
 - Move the SCons MSVC config cache from the workspace root to `RUNNER_TEMP`. It was the one
   other file the action left in the caller's checkout.
 - Clone NVDA with `git clone` instead of `actions/checkout`, which rejects any path resolving

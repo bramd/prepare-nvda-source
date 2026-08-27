@@ -33,11 +33,12 @@ inputs:
     default: "-j2"
   install-vs-components:
     description: >-
-      Whether to install the VS components from NVDA's .vsconfig at runtime. Set to false on
-      runner images that already ship the required Visual Studio toolset (e.g. the standard
-      windows-2025-vs2026 image) to skip the install and behave like nvaccess/nvda's own build.
+      Whether to add the components from NVDA's .vsconfig to the installed Visual Studio at
+      runtime. The GitHub-hosted Windows images already ship what NVDA's build needs, so this
+      defaults to false, matching nvaccess/nvda's own build. Set it to true on a runner whose
+      Visual Studio is missing components NVDA declares.
     required: false
-    default: "true"
+    default: "false"
   vs-version:
     description: >-
       Major Visual Studio version to select when installing components (e.g. 17 for VS 2022, 18

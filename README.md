@@ -14,8 +14,8 @@ same workflow into every repository.
 
 - A **Windows** runner with a supported Visual Studio toolset installed. All current NVDA releases
   (2025.x, 2026.x) build with **Visual Studio 2022** (MSVC v143), which ships on the standard
-  `windows-2022` and `windows-2025` GitHub-hosted images. By default the action adds the components
-  from NVDA's `.vsconfig` to the installed VS at runtime, so a stock image works out of the box.
+  `windows-2022` and `windows-2025` GitHub-hosted images. Those images already carry the components
+  NVDA's `.vsconfig` declares, so a stock image works out of the box with no runtime install.
   Frontier NVDA (`master`) builds with **Visual Studio 2026**, which ships pre-installed on the
   standard `windows-2025-vs2026` image — see
   [Visual Studio & choosing a runner](#visual-studio--choosing-a-runner).
@@ -30,7 +30,7 @@ same workflow into every repository.
 | `path` | no | `nvda` | Directory to clone NVDA into. Relative values resolve against the workspace, absolute values are used as-is. See [Where NVDA is cloned](#where-nvda-is-cloned). |
 | `github-token` | yes | — | Token used to resolve `nvda-ref` to a commit SHA for a precise cache key. Pass `${{ github.token }}`. |
 | `scons-args` | no | `-j2` | Extra arguments appended to `scons source` (e.g. `-j2`, `version=...`). |
-| `install-vs-components` | no | `true` | Install NVDA's `.vsconfig` VS components at runtime. Set `false` on images that already ship the required VS toolset (e.g. the `windows-2025-vs2026` image) to skip the install. |
+| `install-vs-components` | no | `false` | Add NVDA's `.vsconfig` components to the installed Visual Studio at runtime. The GitHub-hosted Windows images already ship them, so this is off by default. See [Visual Studio & choosing a runner](#visual-studio--choosing-a-runner). |
 | `vs-version` | no | `` | Major VS version to select when installing components (`17` = VS 2022, `18` = VS 2026). Empty = latest installed. |
 
 ### Automatic Python detection
@@ -103,16 +103,19 @@ toolchain detection on subsequent cold builds.
 ## Visual Studio & choosing a runner
 
 NVDA's `.vsconfig` lists the required *components*, but not the VS *product version* — that comes
-from whichever Visual Studio is installed on your runner. There are two ways to satisfy it:
+from whichever Visual Studio is installed on your runner.
 
-- **Standard image + install components (default).** On `windows-2022` / `windows-2025`, keep
-  `install-vs-components: true`. The action finds the installed VS with `vswhere` (any edition) and
-  adds the `.vsconfig` components. This covers every current NVDA release (all build with VS 2022).
-  On a multi-VS image, set `vs-version` (e.g. `17`) to pick a specific toolset.
-- **Pre-baked image + skip install.** If your runner already ships the required toolset, set
-  `install-vs-components: false` and target that runner. The action then behaves like
-  `nvaccess/nvda`'s own build and does no runtime install. This is the right setting for
-  `windows-2025-vs2026` (see below).
+**On a GitHub-hosted image you do not need to install anything.** `windows-2022` ships all nine
+components NVDA declares. `windows-2025` ships eight of them; the ninth, the 22621 Windows 11 SDK,
+is superseded there by the 26100 SDK, and `nvaccess/nvda` builds on stock `windows-2025` without
+it. So `install-vs-components` defaults to `false` and the action does no runtime install, exactly
+like `nvaccess/nvda`'s own build.
+
+Set `install-vs-components: true` only on a runner whose Visual Studio is genuinely missing
+something NVDA declares — a self-hosted machine, or a future NVDA that adds a component the images
+do not carry. The action then finds the installed VS with `vswhere` (any edition) and adds the
+`.vsconfig` components. On a multi-VS image, set `vs-version` (e.g. `17`) to pick a specific
+toolset. Expect this to add several minutes to the job.
 
 Building against VS 2026 (`master`/frontier NVDA): `nvaccess/nvda` builds the newest NVDA on the
 **standard, generally-available** `windows-2025-vs2026` GitHub-hosted image, which ships Visual
@@ -124,8 +127,8 @@ runs-on: windows-2025-vs2026
 # ...
       - uses: bramd/prepare-nvda-source@v2
         with:
-          # ...
-          install-vs-components: false   # VS 2026 + NVDA's components already on the image
+          nvda-ref: master
+          github-token: ${{ github.token }}
 ```
 
 Do **not** try to build VS 2026 on a stock `windows-2022` image with `install-vs-components: true`:
