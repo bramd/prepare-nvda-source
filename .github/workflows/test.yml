@@ -31,6 +31,12 @@ jobs:
           # actions/checkout and that the workspace assertion below depends on, and it is the one
           # entry that opts into the VS component install, so that path keeps being exercised
           # against an out-of-workspace .vsconfig.
+          #
+          # It also appends to the uv cache key, deliberately paired with the relocated clone: the
+          # appended entry has to hold up alongside a base that is no longer `nvda/uv.lock`. The
+          # value is a file in this repo rather than a real lockfile, since the action has none of
+          # its own — what is under test is that an appended value reaches setup-uv intact and still
+          # produces a working cache (i.e. the log does not say "No file matched").
           - name: "2026.1 (path: ../nvda)"
             python: "3.13.12"
             arch: x64
@@ -38,6 +44,7 @@ jobs:
             runner: windows-2022
             install-vs-components: "true"
             nvda-path: ../nvda
+            extra-uv-glob: action.yml
           # Frontier NVDA builds with VS 2026, which ships pre-installed on the standard GA
           # windows-2025-vs2026 image, so no runtime component install is needed. This mirrors
           # nvaccess/nvda's own build and proves the pre-baked-image path cross-org.
@@ -65,6 +72,10 @@ jobs:
           github-token: ${{ github.token }}
           install-vs-components: ${{ matrix.install-vs-components }}
           path: ${{ matrix.nvda-path }}
+          # Safe to pass unconditionally: the input only appends, and an empty value adds nothing
+          # (@actions/glob skips blank lines). Rows without extra-uv-glob get NVDA's lockfile alone,
+          # which is the default behaviour.
+          extra-uv-cache-dependency-glob: ${{ matrix.extra-uv-glob }}
 
       # Cheap "did the action build a tree" signal, kept distinct from unit-test failures below.
       # Consumes nvda-path so the output stays exercised.

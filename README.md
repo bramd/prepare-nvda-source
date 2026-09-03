@@ -32,6 +32,7 @@ same workflow into every repository.
 | `scons-args` | no | `-j2` | Extra arguments appended to `scons source` (e.g. `-j2`, `version=...`). |
 | `install-vs-components` | no | `false` | Add NVDA's `.vsconfig` components to the installed Visual Studio at runtime. The GitHub-hosted Windows images already ship them, so this is off by default. See [Visual Studio & choosing a runner](#visual-studio--choosing-a-runner). |
 | `vs-version` | no | `` | Major VS version to select when installing components (`17` = VS 2022, `18` = VS 2026). Empty = latest installed. |
+| `extra-uv-cache-dependency-glob` | no | `` | Extra files to add to the uv cache key (newline-separated). NVDA's lockfile is always included; this only appends. **Set it if your workflow also runs `uv`** — see [uv in the calling workflow](#uv-in-the-calling-workflow). |
 
 ### Automatic Python detection
 
@@ -99,6 +100,40 @@ On a cache **miss**, SCons's detected MSVC environment is additionally cached (v
 `SCONS_CACHE_MSVC_CONFIG`), keyed by the runner OS, image version, VS version, and a hash of NVDA's
 `.vsconfig`. That cache lives in `RUNNER_TEMP`, not in your workspace. It skips the repeated MSVC
 toolchain detection on subsequent cold builds.
+
+### uv in the calling workflow
+
+This action installs uv with `astral-sh/setup-uv` and its cache enabled. `setup-uv` exports
+`UV_CACHE_DIR` for the **rest of the job** and saves that directory in a post step, so every later
+`uv` call in your workflow shares this action's uv cache — and its cache key.
+
+That key is NVDA's own lockfile (`<path>/uv.lock`, following wherever `path` puts the clone), which
+is all this action itself needs. It becomes a problem if your
+workflow runs uv too, because a cache is only re-saved when its key **misses**. Once you pin
+`nvda-ref`, NVDA's lockfile stops changing, the key hits on every run, and the post step never saves
+again. Any wheel uv builds from source in your steps is then rebuilt every time, however warm the
+cache looks — the cache step still reports a hit, so nothing in the log says the work was avoidable.
+
+Add your own lockfile to the key so it moves when your dependencies do:
+
+```yaml
+- uses: bramd/prepare-nvda-source@v2
+  with:
+    nvda-ref: release-2026.2
+    github-token: ${{ github.token }}
+    extra-uv-cache-dependency-glob: add-on/uv.lock
+```
+
+Two things worth knowing:
+
+- **This appends; it never replaces.** NVDA's lockfile stays in the key whatever you pass, and it
+  tracks `path`, so the action's own cache cannot end up keyed on nothing — which is what a
+  hand-written `nvda/uv.lock` would do the moment you relocate the clone. Leaving the input unset
+  changes nothing.
+- **Don't also cache your `.venv`.** `uv sync` recreates the environment, so a restored `.venv` is
+  discarded — it costs restore time and saves nothing. Cache uv's cache (this key) and let `uv sync`
+  rebuild the venv from it; `uv cache prune --ci`, which `setup-uv` runs before saving, keeps wheels
+  built from source, which is exactly what makes the second run fast.
 
 ## Visual Studio & choosing a runner
 

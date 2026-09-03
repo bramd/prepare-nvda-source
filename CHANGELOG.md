@@ -31,6 +31,23 @@
 - Hash NVDA's `.vsconfig` with `sha256sum` rather than `hashFiles()` for the SCons MSVC cache
   key, since `hashFiles()` only globs inside the workspace and silently returns an empty string
   for anything outside it.
+- Add an `extra-uv-cache-dependency-glob` input, appended to the uv cache key alongside NVDA's
+  lockfile (which is always included, so the key can never end up matching nothing). `setup-uv`
+  exports `UV_CACHE_DIR` for the rest of the job and saves that directory in a post step, so a
+  calling workflow that also runs uv silently shares this action's cache *and* its key. A cache is
+  only re-saved when its key misses, so once `nvda-ref` is pinned the key stops changing and the
+  post step never saves again — anything uv builds from source in the caller's own steps is then
+  rebuilt on every run, however warm the cache looks, and the cache step still reports a hit.
+  Listing the caller's lockfile makes the key move with its dependencies. Measured on a consumer
+  whose lint job pulls NVDA in as a git dependency: `uv sync` spent ~73 s rebuilding
+  `nvda-misc-deps` every run; with the built wheel persisted it does not rebuild at all.
+- The input appends rather than overrides deliberately. An overridable single value has two failure
+  modes that both key the cache on nothing while only logging a warning: a caller passing an empty
+  string (which bypasses an input `default:`), and a caller who overrides without repeating NVDA's
+  own lockfile.
+- Document the above under README > Caching > "uv in the calling workflow", including that
+  `uv cache prune --ci` (which `setup-uv` runs before saving) retains wheels built from source, and
+  that caching a consumer's `.venv` alongside is pointless because `uv sync` recreates it.
 
 ## v1.2.0
 

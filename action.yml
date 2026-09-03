@@ -46,6 +46,17 @@ inputs:
       install-vs-components is true.
     required: false
     default: ""
+  extra-uv-cache-dependency-glob:
+    description: >-
+      Extra files to add to the uv cache key, newline-separated. NVDA's own lockfile is always
+      included; this input only ever appends to it, so the action's cache can never end up keyed on
+      nothing. Set it when the calling workflow also runs uv: the cache is only re-saved when its
+      key misses, so a key derived solely from NVDA's lockfile stops changing once nvda-ref is
+      pinned, and anything uv builds from source in your own steps is then rebuilt on every run
+      while the cache still reports a hit. Listing your own lockfile here makes the key move when
+      your dependencies do.
+    required: false
+    default: ""
 
 outputs:
   nvda-path:
@@ -152,11 +163,23 @@ runs:
 
     # Installed after NVDA is available (from the clone or the restored cache) so setup-uv can key
     # its cache on NVDA's lockfile. uv is only needed for `scons source`, which runs after this.
+    #
+    # setup-uv exports UV_CACHE_DIR for the rest of the job and saves that directory in a post step,
+    # so every later `uv` call in the calling workflow shares this cache and this key. That is why
+    # callers can extend the key: a workflow that runs uv itself must be able to make the key move
+    # when its own dependencies do, or its source builds never get persisted. See README > Caching.
+    #
+    # The glob is a fixed base plus whatever the caller appends, rather than a single overridable
+    # value, so NVDA's lockfile is always part of the key — including when `path` moves the clone,
+    # which a hardcoded `nvda/uv.lock` would silently stop matching. @actions/glob trims each line
+    # and skips empty ones, so an unset input contributes nothing.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-        cache-dependency-glob: ${{ steps.resolve-path.outputs.dir }}/uv.lock
+        cache-dependency-glob: |
+          ${{ steps.resolve-path.outputs.dir }}/uv.lock
+          ${{ inputs.extra-uv-cache-dependency-glob }}
 
     - name: Install Visual Studio components
       if: steps.cache-nvda.outputs.cache-hit != 'true' && inputs.install-vs-components == 'true'
