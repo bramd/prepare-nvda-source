@@ -173,10 +173,13 @@ runs:
     # value, so NVDA's lockfile is always part of the key — including when `path` moves the clone,
     # which a hardcoded `nvda/uv.lock` would silently stop matching. @actions/glob trims each line
     # and skips empty ones, so an unset input contributes nothing.
+    #
+    # working-directory makes setup-uv read the uv version from NVDA's uv.toml or pyproject.toml.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
+        working-directory: ${{ steps.resolve-path.outputs.dir }}
         cache-dependency-glob: |
           ${{ steps.resolve-path.outputs.dir }}/uv.lock
           ${{ inputs.extra-uv-cache-dependency-glob }}

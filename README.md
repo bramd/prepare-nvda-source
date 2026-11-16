@@ -107,6 +107,9 @@ This action installs uv with `astral-sh/setup-uv` and its cache enabled. `setup-
 `UV_CACHE_DIR` for the **rest of the job** and saves that directory in a post step, so every later
 `uv` call in your workflow shares this action's uv cache — and its cache key.
 
+The uv version comes from NVDA's `uv.toml` or `pyproject.toml` at `path`, not from your repository.
+`setup-uv` installs the newest uv within NVDA's `required-version`.
+
 That key is NVDA's own lockfile (`<path>/uv.lock`, following wherever `path` puts the clone), which
 is all this action itself needs. It becomes a problem if your
 workflow runs uv too, because a cache is only re-saved when its key **misses**. Once you pin

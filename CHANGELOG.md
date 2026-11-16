@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.1
+
+- Take the uv version from NVDA's `uv.toml` or `pyproject.toml` instead of the calling
+  repository's. A caller that pinned a uv older than NVDA requires made `scons source` hang in
+  NVDA's interactive uv update prompt until the job timed out.
+
 ## v2.0.0
 
 - Add a `path` input controlling where NVDA is cloned. A relative value resolves against the

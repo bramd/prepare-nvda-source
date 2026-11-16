@@ -57,14 +57,27 @@ jobs:
             runner: windows-2025-vs2026
             install-vs-components: "false"
             nvda-path: ""
+            # A uv older than master's ensureuv.ps1 accepts.
+            caller-uv-pin: "0.13.4"
 
     steps:
       - name: Checkout action
         uses: actions/checkout@v7
 
+      # Pins uv in the workspace's pyproject.toml, as a calling repository does.
+      - name: Pin uv in the workspace
+        if: matrix.caller-uv-pin != ''
+        shell: pwsh
+        run: |
+          Set-Content -Path pyproject.toml -Value @(
+            '[dependency-groups]'
+            'dev = ["uv==${{ matrix.caller-uv-pin }}"]'
+          )
+
       - name: Prepare NVDA source
         id: prepare
         uses: ./
+        timeout-minutes: 60
         with:
           python-version: ${{ matrix.python }}
           python-arch: ${{ matrix.arch }}
